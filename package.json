@@ -1,0 +1,15 @@
+{
+  "name": "token2022-creator",
+  "version": "1.0.0",
+  "description": "Solana Token-2022 Creator Tool",
+  "main": "create-token2022.js",
+  "scripts": {
+    "start": "node create-token2022.js"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.87.6",
+    "bs58": "^5.0.0",
+    "csv-writer": "^1.6.0",
+    "dotenv": "^16.3.1"
+  }
+}
