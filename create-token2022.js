@@ -9,6 +9,7 @@ const readline = require('readline');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
 const csv = require('csv-writer').createObjectCsvWriter;
+const Utils = require('./utils');
 
 class TokenCreator {
     constructor() {
@@ -106,13 +107,12 @@ class TokenCreator {
         if (walletChoice === '1') {
             // Use existing wallet
             const { stdout: configOutput } = await execAsync('solana config get');
-            const keypairPathMatch = configOutput.match(/Keypair Path: (.+)/);
-            
-            if (!keypairPathMatch) {
-                throw new Error('Could not find keypair path in Solana config');
+            const keypairPath = Utils.parseKeypairPath(configOutput);
+
+            if (!keypairPath) {
+            throw new Error('Could not find keypair path in Solana config');
             }
-            
-            const keypairPath = keypairPathMatch[1].trim(); // Remove any trailing spaces
+
             
             try {
                 // Check if path is absolute or relative
