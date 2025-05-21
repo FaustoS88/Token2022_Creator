@@ -1,6 +1,6 @@
 # Solana Token-2022 Creator
 
-A Node.js script to create and manage Solana Token-2022 tokens with interactive CLI interface. This tool simplifies the token creation process on Solana, handling everything from wallet setup to metadata management and authority revocation.
+A Node.js script to create and manage Solana Token-2022 tokens with interactive CLI interface. This tool simplifies the token creation process on Solana, handling everything from wallet setup to metadata.
 
 ## Features
 
@@ -11,8 +11,9 @@ A Node.js script to create and manage Solana Token-2022 tokens with interactive 
 - Metadata creation and initialization
 - Token minting with customizable supply
 - Authority management (mint, metadata, metadata-pointer)
-- Automatic/custom compute unit price adjustment
+- Automatic/custom compute unit price adjustment with dynamic retry logic
 - CSV export for wallet and token information
+- **Professional logging with [Winston](https://www.npmjs.com/package/winston)** (all CLI output is now managed by Winston, with timestamps and log levels)
 
 ## Prerequisites
 
@@ -24,9 +25,11 @@ A Node.js script to create and manage Solana Token-2022 tokens with interactive 
 
 1. Clone the repository
 2. Install dependencies:
-```bash
-npm install
-```
+    ```bash
+    npm install
+    ```
+    > **Note:** This project uses the [winston](https://www.npmjs.com/package/winston) logging library for all CLI output.  
+    > If you upgrade from a previous version, please run `npm install` to ensure all dependencies are installed.
 
 ## Usage
 
@@ -36,77 +39,57 @@ Run the script:
 node create-token2022.js
 ```
 
+You can control the verbosity of logging via the environment variable `LOG_LEVEL` (e.g., `info`, `debug`, `warn`, `error`).
+
+For example, to enable debug/verbose output:
+```bash
+LOG_LEVEL=debug node create-token2022.js
+```
+
 ## Example Session
 
-Here's a complete example of creating a token with the script:
+Here's a complete example of creating a token with the script and the new logging output:
 
 ```plaintext
-node side_projects/strategies/AMM_bot/to
-ken2022-creator/create-token2022.js
-
-📁 Creating project folder...
+Token2022_Creator % node /Users/faustosaccoccio/Documents/moondev/Token2022_Creator/create-token2022-1.js
+[2025-05-21 09:31:08] info: 📁 Creating project folder...
 Enter project directory name (default: new-token): test
-✅ Created and moved to test folder
-
-🌐 Network Setup
-Network configuration: Config File: /Users/user/.config/solana/cli/config.yml
-RPC URL: https://api.mainnet-beta.solana.com 
-WebSocket URL: wss://api.mainnet-beta.solana.com/ (computed)
-Keypair Path: /Users/user/.config/solana/id.json 
-Commitment: confirmed 
-
-
-👛 Wallet Setup
+[2025-05-21 09:31:12] info: Created and moved to test folder
+[2025-05-21 09:31:12] info: 🌐 Network Setup
+[2025-05-21 09:31:12] info: 👛 Wallet Setup
 Would you like to:
 1. Use your currently configured CLI wallet
 2. Generate a new vanity wallet
 Enter choice (1 or 2): 1
-✅ Using existing wallet: aixxxxxxxxxxxxxxxxxxxxxxxxxxxxgw9fy6
-📂 Keypair path: /Users/user/.config/solana/id.json
-
-💾 Saving wallet information...
-✅ Wallet information saved to wallet-info.csv
-
-💰 Wallet Funding Required
-Provider Wallet Address: aixxxxxxxxxxxxxxxxxxxxxxxxxxPtxx9fy6
-
-📋 Steps to follow:
+[2025-05-21 09:31:14] info: Using existing wallet: aixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxfy6
+[2025-05-21 09:31:14] info: Wallet information saved to wallet-info.csv
+[2025-05-21 09:31:14] info: 💰 Wallet Funding Required
+[2025-05-21 09:31:14] info: Provider Wallet Address: aixxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxfy6
+[2025-05-21 09:31:14] info: Steps to follow:
 1. Copy the provider wallet address above
 2. Send SOL to this address (recommended: at least 1 SOL)
 3. Wait for the transaction to confirm
-
-Current balance: 0.207374832 SOL
+[2025-05-21 09:31:14] info: Current balance: 0.193552754 SOL
 
 Have you funded the wallet? (yes/no): yes
-
-✅ Wallet funded successfully! Balance: 0.207374832 SOL
-
-🔑 Token Mint Account Setup
+[2025-05-21 09:31:16] info: Wallet funded successfully! Balance: 0.193552754 SOL
+[2025-05-21 09:31:16] info: 🔑 Token Mint Account Setup
 Would you like to create a vanity address for your token? (yes/no): yes
-Enter characters you want your token address to start with (e.g. "test"): ai
-Generating token address starting with 'ai'...
-Current Solana config: Config File: /Users/user/.config/solana/cli/config.yml
-RPC URL: https://api.mainnet-beta.solana.com 
-WebSocket URL: wss://api.mainnet-beta.solana.com/ (computed)
-Keypair Path: /Users/user/.config/solana/id.json 
-Commitment: confirmed 
-
-✅ Created token mint keypair: aiBj7pHvrxxxxxxxxxxxxxxxxxxk9VN2HNp1R.json
-
-🪙 Creating token...
+Enter characters you want your token address to start with (e.g. "test"): 1
+[2025-05-21 09:31:19] info: Generating token address starting with '1'...
+[2025-05-21 09:31:19] info: Created token mint keypair: 1644SWrBtbjDeHN2CiW8ctqySLQRrbTU62SrrRysTsg.json
+[2025-05-21 09:31:19] info: 🪙 Creating token...
 Enter token decimals (usually 9): 9
-✅ Token created successfully: aiBj7xxxxxxxxxxxxxxxxxN2HNp1R
-
-🖼️  Manual Metadata Upload Process:
-1. First, you need to upload your image to Web3.Storage
+> [2025-05-21 09:31:26] info: Token created successfully: 16xxxxxxxxxxxxxxxxxxxxxxxxxxxxsTsg
+[2025-05-21 09:31:26] info: 🖼️  Manual Metadata Upload Process:
+[2025-05-21 09:31:26] info: 1. First, you need to upload your image to Web3.Storage
 2. Then create and upload the metadata.json file
 Enter token name: test
 Enter token symbol: test
-Enter token description: it's a test for my script
-Enter external URL: https://solana.com/es
-Enter token category (e.g., Utility Token): Utility
-
-📋 Steps to follow:
+Enter token description: test
+Enter external URL: https://test.com
+Enter token category (e.g., Utility Token): utility
+[2025-05-21 09:31:49] info: Steps to follow:
 1. Go to https://web3.storage/
 2. Upload your token image
 3. Copy the IPFS URL for your image
@@ -115,63 +98,50 @@ Enter token category (e.g., Utility Token): Utility
 6. Upload the complete metadata.json to Web3.Storage
 7. Copy the metadata IPFS URL
 
-Paste the final metadata.json IPFS URL here: https://bafybeiarxxxxxxxxxxxxxxxxxxxxxxxxu7dwzmop7yh5i.ipfs.w3s.link/metadata-template.json
-
-📝 Initializing metadata...
-✅ Metadata initialized successfully
-
-💳 Creating token accounts...
-Creating token account for provider...
-> ✅ Created token account for provider: MdSrHqgxxxxxxxxxxxxxxxxxxxxxtBka7cdDB
-
-💾 Saving wallet information...
-✅ Wallet information saved to wallet-info.csv
-
-💰 Minting tokens...
+Paste the final metadata.json IPFS URL here: www.test.com
+[2025-05-21 09:31:54] info: 📝 Initializing metadata...
+[2025-05-21 09:31:56] info: Metadata initialized successfully
+[2025-05-21 09:31:56] info: 💳 Creating token accounts...
+[2025-05-21 09:31:56] info: Creating token account for provider...
+[2025-05-21 09:31:58] info: Created token account for provider: CkA7mXm9XaobsytGGt1toVGNdsqaLMkfUBUJ9u7RkBmi
+[2025-05-21 09:31:58] info: Wallet information saved to wallet-info.csv
+[2025-05-21 09:31:58] info: 💰 Minting tokens...
 Enter token supply to mint (default: 1000000000): 1000000000
-✅ 1000000000 tokens minted successfully to provider account: MdSrHqgxxxxxxxxxxxxxxxxxxxxxxtBka7cdDB
-
-🔒 Revoking authorities...
+> [2025-05-21 09:32:13] info: 1000000000 tokens minted successfully to provider account: CkA7mXm9XaobsytGGt1toVGNdsqaLMkfUBUJ9u7RkBmi
+[2025-05-21 09:32:13] info: 🔒 Revoking authorities...
 Would you like to revoke all authorities making the token immutable? (yes/no): yes
-
-Revoking mint authority...
-
-Transaction failed. Increase compute unit price by 1000 and retry or insert custom compute unit amount? (yes/no/amount): yes
-Retrying with compute unit price: 2000
-✅ Mint authority revoked
-
-Revoking metadata authority...
-✅ Metadata authority revoked
-
-Revoking metadata-pointer authority...
-✅ Metadata-pointer authority revoked
-
-✅ All authorities have been successfully revoked
-⚠️  Warning: These actions cannot be undone. The token is now immutable.
-
-💾 Saving token information...
-✅ Token information saved to token-info.csv
-
-🎉 Token creation completed successfully!
-Token Address: aiBjxxxxxxxxxxxxxxxxxxxxxxxVN2HNp1R
-Provider Token Account: MdSxxxxxxxxxxxxxxxxxxxxxxtBka7cdDB
-Token Mint Keypair: aiBjxxxxxxxxxxxxxxxxVN2HNp1R.json
-
-✅ Check wallet-info.csv and token-info.csv for all details
+[2025-05-21 09:32:17] info: Revoking mint authority...
+[2025-05-21 09:32:20] info: Mint authority revoked
+[2025-05-21 09:32:20] info: Revoking metadata authority...
+[2025-05-21 09:32:32] info: Metadata authority revoked
+[2025-05-21 09:32:32] info: Revoking metadata-pointer authority...
+[2025-05-21 09:32:35] info: Metadata-pointer authority revoked
+[2025-05-21 09:32:35] info: All authorities have been successfully revoked
+[2025-05-21 09:32:35] warn: These actions cannot be undone. The token is now immutable.
+[2025-05-21 09:32:35] info: Token information saved to token-info.csv
+[2025-05-21 09:32:35] info: 🎉 Token creation completed successfully!
+[2025-05-21 09:32:35] info: Token Address: 16xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxsTsg
+[2025-05-21 09:32:35] info: Provider Token Account: Ckxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxmi
+[2025-05-21 09:32:35] info: Token Mint Keypair: 16xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxsTsg.json
+[2025-05-21 09:32:35] info: Check wallet-info.csv and token-info.csv for all details
+[2025-05-21 09:32:35] info: To verify your token:
+1. Check token balance: spl-token accounts
+2. View token metadata: spl-token display 16xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxsTsg
+3. View transaction history on Solana Explorer
 ```
 
 ## Output Files
 
 The script generates two CSV files:
 
-1. wallet-info.csv: Contains wallet information including:
+1. **wallet-info.csv**: Contains wallet information including:
    - Wallet type
    - Public key
    - Private key (encrypted)
    - Seed phrase (if applicable)
    - Associated token account addresses
 
-2. token-info.csv: Contains token information including:
+2. **token-info.csv**: Contains token information including:
    - Token mint address
    - Decimals
    - Total supply
@@ -202,10 +172,11 @@ The script generates two CSV files:
 
 ### Error Handling and Network Load Management
 - Dynamic compute unit price adjustment based on network conditions
-- Automatic retry mechanism for failed transactions
+- Automatic retry mechanism for failed transactions (prompting for compute price increase if needed)
 - Graceful handling of increased gas fees during high network load
 - Progressive scaling of compute units to ensure transaction success
 - Real-time monitoring of transaction status and network congestion
+- **All errors, warnings, and info are printed via Winston logger with timestamps and log levels for clarity**
 
 ## Security Notes
 

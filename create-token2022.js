@@ -1,4 +1,3 @@
-// src/scripts/create-token2022.js
 require('dotenv').config();
 const { Keypair, Connection, PublicKey } = require('@solana/web3.js');
 const { exec } = require('child_process');
@@ -10,6 +9,7 @@ const { promisify } = require('util');
 const execAsync = promisify(exec);
 const csv = require('csv-writer').createObjectCsvWriter;
 const Utils = require('./utils');
+const logger = require('./logger');
 
 class TokenCreator {
     constructor() {
@@ -32,188 +32,194 @@ class TokenCreator {
     }
 
     async createProjectFolder() {
-        console.log('\n📁 Creating project folder...');
+        logger.info('📁 Creating project folder...');
         let folderName = await this.question('Enter project directory name (default: new-token): ');
-        folderName = folderName.trim() || 'new-token'; // Use default if empty or just spaces
-        
+        folderName = folderName.trim() || 'new-token';
+
         try {
             if (!fs.existsSync(folderName)) {
                 fs.mkdirSync(folderName, { recursive: true });
                 process.chdir(folderName);
-                console.log(`✅ Created and moved to ${folderName} folder`);
+                logger.info(`Created and moved to ${folderName} folder`);
             } else {
                 process.chdir(folderName);
-                console.log(`✅ Moved to existing ${folderName} folder`);
+                logger.info(`Moved to existing ${folderName} folder`);
             }
         } catch (error) {
-            console.error('Error creating/accessing folder:', error);
+            logger.error('Error creating/accessing folder: ' + error.message);
             throw error;
         }
     }
 
     async setupNetwork() {
-        console.log('\n🌐 Network Setup');
+        logger.info('🌐 Network Setup');
         await execAsync('solana config set -um');
         this.network = 'mainnet';
-        
         const { stdout } = await execAsync('solana config get');
-        console.log('Network configuration:', stdout);
+        logger.debug('Network configuration: ' + stdout.replace(/\n/g, ' | '));
     }
 
-    async executeWithAdjustedComputePrice(baseCommand, initialPrice = 1000) {
+    /**
+     * Executes a solana/spl-token command and robustly retries on common blockchain errors.
+     * Prompts user on transient errors to retry with increased compute unit price or custom value.
+     * @param {string} baseCommand - The command string (with {{COMPUTE_PRICE}} as a placeholder).
+     * @param {number} initialPrice - The initial compute unit price.
+     * @param {number} maxRetries - Maximum number of retries before giving up.
+     */
+    async executeWithAdjustedComputePrice(baseCommand, initialPrice = 1000, maxRetries = 5) {
         let computeUnitPrice = initialPrice;
-        
-        while (true) {
+        let retries = 0;
+
+        while (retries < maxRetries) {
             try {
                 const command = baseCommand.replace('{{COMPUTE_PRICE}}', computeUnitPrice);
+                logger.debug(`Executing command: ${command}`);
                 const result = await execAsync(command);
                 return result;
             } catch (error) {
-                if (error.stderr && (error.stderr.includes('BlockhashNotFound') || 
-                    error.stderr.includes('compute unit') || 
-                    error.stderr.includes('gas'))) {
-                    
+                const errMsg = ((error.stderr || error.message || '') + '').toLowerCase();
+                // These are transient and user-actionable errors
+                if (
+                    errMsg.includes('blockhashnotfound') ||
+                    errMsg.includes('blockhash not found') ||
+                    errMsg.includes('unable to confirm transaction') ||
+                    errMsg.includes('transaction expired') ||
+                    errMsg.includes('compute unit') ||
+                    errMsg.includes('gas') ||
+                    errMsg.includes('insufficient fee-payer funds') ||
+                    errMsg.includes('rpc error')
+                ) {
+                    retries++;
+                    logger.warn(`Transaction failed with error: "${errMsg.split('\n')[0]}"`);
                     const response = await this.question(
-                        `\nTransaction failed. Increase compute unit price by 1000 and retry or insert custom compute unit amount? (yes/no/amount): `
+                        `\nTransaction failed with error: "${errMsg.split('\n')[0]}".\nIncrease compute unit price by 1000 and retry or insert custom compute unit amount? (yes/no/amount): `
                     );
 
                     if (response.toLowerCase() === 'yes') {
                         computeUnitPrice += 1000;
-                        console.log(`Retrying with compute unit price: ${computeUnitPrice}`);
+                        logger.info(`Retrying with compute unit price: ${computeUnitPrice}`);
                     } else if (response.toLowerCase() === 'no') {
                         throw error;
                     } else if (!isNaN(response)) {
                         computeUnitPrice = parseInt(response);
-                        console.log(`Retrying with custom compute unit price: ${computeUnitPrice}`);
+                        logger.info(`Retrying with custom compute unit price: ${computeUnitPrice}`);
                     } else {
                         throw new Error('Invalid response. Transaction aborted.');
                     }
                 } else {
+                    logger.error('Unrecoverable error: ' + errMsg);
                     throw error;
                 }
             }
         }
+        throw new Error('Maximum retries reached. Transaction failed.');
     }
 
     async setupWallet() {
-        console.log('\n👛 Wallet Setup');
+        logger.info('👛 Wallet Setup');
         const walletChoice = await this.question(
             'Would you like to:\n' +
             '1. Use your currently configured CLI wallet\n' +
             '2. Generate a new vanity wallet\n' +
             'Enter choice (1 or 2): '
         );
-    
+
         if (walletChoice === '1') {
             // Use existing wallet
             const { stdout: configOutput } = await execAsync('solana config get');
             const keypairPath = Utils.parseKeypairPath(configOutput);
 
             if (!keypairPath) {
-            throw new Error('Could not find keypair path in Solana config');
+                throw new Error('Could not find keypair path in Solana config');
             }
 
-            
             try {
-                // Check if path is absolute or relative
-                const absolutePath = path.isAbsolute(keypairPath) 
-                    ? keypairPath 
+                const absolutePath = path.isAbsolute(keypairPath)
+                    ? keypairPath
                     : path.resolve(process.env.HOME, '.config/solana/cli', keypairPath);
-    
+
                 if (!fs.existsSync(absolutePath)) {
                     throw new Error(`Keypair file not found at: ${absolutePath}`);
                 }
-    
-                // Store existing wallet info
+
                 const keypairData = JSON.parse(fs.readFileSync(absolutePath, 'utf-8'));
                 const keypair = Keypair.fromSecretKey(new Uint8Array(keypairData));
-                
+
                 this.walletInfo.provider = {
                     publicKey: keypair.publicKey.toString(),
                     privateKey: bs58.encode(keypair.secretKey),
                     outfile: absolutePath
                 };
-                
-                console.log(`✅ Using existing wallet: ${keypair.publicKey.toString()}`);
-                console.log(`📂 Keypair path: ${absolutePath}`);
+
+                logger.info(`Using existing wallet: ${keypair.publicKey.toString()}`);
+                logger.debug(`Keypair path: ${absolutePath}`);
             } catch (error) {
-                console.error('Error accessing keypair file:', error);
-                // Give user another chance to choose wallet setup
-                console.log('\n⚠️  Failed to access existing wallet. Would you like to try again or create a new one?');
+                logger.error('Error accessing keypair file: ' + error.message);
+                logger.warn('Failed to access existing wallet. Would you like to try again or create a new one?');
                 return this.setupWallet();
             }
         } else {
             // Generate new vanity wallet
             const prefix = await this.question('Enter characters you want your wallet to start with (e.g. "key"): ');
-            console.log(`Generating wallet starting with '${prefix}'...`);
-            
+            logger.info(`Generating wallet starting with '${prefix}'...`);
+
             const { stdout } = await execAsync(
                 `solana-keygen grind --starts-with ${prefix}:1`
             );
-            
+
             const outfile = stdout.match(/Wrote keypair to (.+\.json)/)[1];
-            
-            // Update Solana config to use new keypair
             await execAsync(`solana config set --keypair ${outfile}`);
-            
             const keypairData = JSON.parse(fs.readFileSync(outfile, 'utf-8'));
             const keypair = Keypair.fromSecretKey(new Uint8Array(keypairData));
-            
+
             this.walletInfo.provider = {
                 publicKey: keypair.publicKey.toString(),
                 privateKey: bs58.encode(keypair.secretKey),
                 seedPhrase: stdout.match(/recovery seed phrase: (.*)/)?.[1]?.trim() || '',
                 outfile
             };
-            
-            console.log(`✅ Created new wallet: ${keypair.publicKey.toString()}`);
+
+            logger.info(`Created new wallet: ${keypair.publicKey.toString()}`);
         }
-    
         await this.saveWalletInfo();
     }
 
     async createTokenMintKeypair() {
-        console.log('\n🔑 Token Mint Account Setup');
+        logger.info('🔑 Token Mint Account Setup');
         const createVanity = await this.question(
             'Would you like to create a vanity address for your token? (yes/no): '
         );
-    
+
         if (createVanity.toLowerCase() === 'yes') {
             const prefix = await this.question('Enter characters you want your token address to start with (e.g. "test"): ');
-            console.log(`Generating token address starting with '${prefix}'...`);
-            
+            logger.info(`Generating token address starting with '${prefix}'...`);
+
             const { stdout } = await execAsync(
                 `solana-keygen grind --starts-with ${prefix}:1`
             );
-            
+
             const mintKeypairFile = stdout.match(/Wrote keypair to (.+\.json)/)[1];
             this.tokenInfo.mintKeypair = mintKeypairFile;
-    
-            // Make sure our wallet is set as the default signer
+
             await execAsync(`solana config set --keypair ${this.walletInfo.provider.outfile}`);
-            
-            // Verify the config
             const { stdout: configOutput } = await execAsync('solana config get');
-            console.log('Current Solana config:', configOutput);
-            
-            console.log(`✅ Created token mint keypair: ${mintKeypairFile}`);
+            logger.debug('Current Solana config: ' + configOutput.replace(/\n/g, ' | '));
+
+            logger.info(`Created token mint keypair: ${mintKeypairFile}`);
             return mintKeypairFile;
         }
-        
         return null;
     }
 
     async saveWalletInfo() {
-        console.log('\n💾 Saving wallet information...');
-
         const csvWriter = csv({
             path: 'wallet-info.csv',
             header: [
-                {id: 'type', title: 'WALLET_TYPE'},
-                {id: 'publicKey', title: 'PUBLIC_KEY'},
-                {id: 'privateKey', title: 'PRIVATE_KEY'},
-                {id: 'seedPhrase', title: 'SEED_PHRASE'},
-                {id: 'ataAddress', title: 'ASSOCIATED_TOKEN_ACCOUNT'}
+                { id: 'type', title: 'WALLET_TYPE' },
+                { id: 'publicKey', title: 'PUBLIC_KEY' },
+                { id: 'privateKey', title: 'PRIVATE_KEY' },
+                { id: 'seedPhrase', title: 'SEED_PHRASE' },
+                { id: 'ataAddress', title: 'ASSOCIATED_TOKEN_ACCOUNT' }
             ]
         });
 
@@ -226,34 +232,30 @@ class TokenCreator {
         }));
 
         await csvWriter.writeRecords(records);
-        console.log('✅ Wallet information saved to wallet-info.csv');
+        logger.info('Wallet information saved to wallet-info.csv');
     }
 
     async checkWalletFunding() {
         if (this.useExistingWallet) {
-            console.log('\n💰 Using existing wallet - skipping funding check');
+            logger.info('💰 Using existing wallet - skipping funding check');
             return;
         }
 
-        console.log('\n💰 Wallet Funding Required');
-        console.log(`Provider Wallet Address: ${this.walletInfo.provider.publicKey}`);
-        
-        console.log('\n📋 Steps to follow:');
-        console.log('1. Copy the provider wallet address above');
-        console.log('2. Send SOL to this address (recommended: at least 1 SOL)');
-        console.log('3. Wait for the transaction to confirm');
+        logger.info('💰 Wallet Funding Required');
+        logger.info(`Provider Wallet Address: ${this.walletInfo.provider.publicKey}`);
+        logger.info('Steps to follow:\n1. Copy the provider wallet address above\n2. Send SOL to this address (recommended: at least 1 SOL)\n3. Wait for the transaction to confirm');
 
         try {
             const publicKey = new PublicKey(this.walletInfo.provider.publicKey);
             const balance = await this.connection.getBalance(publicKey);
-            console.log(`\nCurrent balance: ${balance / 1e9} SOL`);
+            logger.info(`Current balance: ${balance / 1e9} SOL`);
         } catch (error) {
-            console.log('\nCould not check balance. Please verify funding manually.');
+            logger.warn('Could not check balance. Please verify funding manually.');
         }
 
         const confirmation = await this.question('\nHave you funded the wallet? (yes/no): ');
         if (confirmation.toLowerCase() !== 'yes') {
-            console.log('Please fund the wallet before continuing.');
+            logger.info('Please fund the wallet before continuing.');
             return await this.checkWalletFunding();
         }
 
@@ -261,20 +263,19 @@ class TokenCreator {
             const publicKey = new PublicKey(this.walletInfo.provider.publicKey);
             const balance = await this.connection.getBalance(publicKey);
             if (balance === 0) {
-                console.log('\n⚠️  Warning: Wallet still shows 0 balance. Are you sure it\'s funded?');
+                logger.warn('Wallet still shows 0 balance. Are you sure it\'s funded?');
                 return await this.checkWalletFunding();
             }
-            console.log(`\n✅ Wallet funded successfully! Balance: ${balance / 1e9} SOL`);
+            logger.info(`Wallet funded successfully! Balance: ${balance / 1e9} SOL`);
         } catch (error) {
-            console.log('\n⚠️  Could not verify balance. Proceeding based on your confirmation...');
+            logger.warn('Could not verify balance. Proceeding based on your confirmation...');
         }
     }
 
     async handleManualMetadata() {
-        console.log('\n🖼️  Manual Metadata Upload Process:');
-        console.log('1. First, you need to upload your image to Web3.Storage');
-        console.log('2. Then create and upload the metadata.json file');
-        
+        logger.info('🖼️  Manual Metadata Upload Process:');
+        logger.info('1. First, you need to upload your image to Web3.Storage\n2. Then create and upload the metadata.json file');
+
         const metadata = {
             name: await this.question('Enter token name: '),
             symbol: await this.question('Enter token symbol: '),
@@ -293,14 +294,7 @@ class TokenCreator {
             JSON.stringify(metadata, null, 2)
         );
 
-        console.log('\n📋 Steps to follow:');
-        console.log('1. Go to https://web3.storage/');
-        console.log('2. Upload your token image');
-        console.log('3. Copy the IPFS URL for your image');
-        console.log('4. Open metadata-template.json that was just created');
-        console.log('5. Add the image IPFS URL to the metadata file');
-        console.log('6. Upload the complete metadata.json to Web3.Storage');
-        console.log('7. Copy the metadata IPFS URL\n');
+        logger.info('Steps to follow:\n1. Go to https://web3.storage/\n2. Upload your token image\n3. Copy the IPFS URL for your image\n4. Open metadata-template.json that was just created\n5. Add the image IPFS URL to the metadata file\n6. Upload the complete metadata.json to Web3.Storage\n7. Copy the metadata IPFS URL\n');
 
         const metadataUrl = await this.question('Paste the final metadata.json IPFS URL here: ');
         return {
@@ -310,148 +304,140 @@ class TokenCreator {
     }
 
     async createToken() {
-        console.log('\n🪙 Creating token...');
+        logger.info('🪙 Creating token...');
         const decimals = await this.question('Enter token decimals (usually 9): ');
-    
+
         try {
             if (!this.tokenInfo.mintKeypair) {
                 throw new Error('Token mint keypair must be created first');
             }
-    
+
             const createTokenCmd = `spl-token create-token \
                 --program-id TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb \
                 --enable-metadata \
                 --decimals ${decimals} \
                 --with-compute-unit-price {{COMPUTE_PRICE}} \
                 ${this.tokenInfo.mintKeypair}`;
-    
+
             const { stdout: tokenOutput } = await this.executeWithAdjustedComputePrice(createTokenCmd);
             const tokenAddress = tokenOutput.match(/Creating token ([a-zA-Z0-9]+)/)[1];
             this.tokenInfo.address = tokenAddress;
             this.tokenInfo.decimals = decimals;
-            
-            console.log('✅ Token created successfully:', tokenAddress);
+
+            logger.info('Token created successfully: ' + tokenAddress);
             return tokenAddress;
         } catch (error) {
-            console.error('❌ Error creating token:', error);
+            logger.error('Error creating token: ' + (error.stderr || error.message));
             throw error;
         }
-    }   
+    }
 
     async createTokenAccounts(tokenAddress) {
-        console.log('\n💳 Creating token accounts...');
-        
+        logger.info('💳 Creating token accounts...');
+
         if (!this.walletInfo.provider.publicKey || !this.walletInfo.provider.privateKey) {
             throw new Error('Critical wallet information missing before ATA creation');
         }
-        
+
         for (const [walletType, info] of Object.entries(this.walletInfo)) {
-            console.log(`Creating token account for ${walletType}...`);
-            
+            logger.info(`Creating token account for ${walletType}...`);
+
             const createAccountCmd = `spl-token create-account ${tokenAddress} \
                 --owner ${info.publicKey} \
                 --fee-payer ${this.walletInfo['provider'].outfile} \
                 --with-compute-unit-price {{COMPUTE_PRICE}}`;
-            
+
             const { stdout } = await this.executeWithAdjustedComputePrice(createAccountCmd);
-    
+
             const ataAddress = stdout.match(/Creating account ([a-zA-Z0-9]+)/)?.[1];
             this.walletInfo[walletType] = {
                 ...this.walletInfo[walletType],
                 ataAddress
             };
-            
-            console.log(`✅ Created token account for ${walletType}: ${ataAddress}`);
+
+            logger.info(`Created token account for ${walletType}: ${ataAddress}`);
         }
-    
+
         await this.saveWalletInfo();
     }
 
     async initializeMetadata(tokenAddress, metadata, metadataUrl) {
-        console.log('\n📝 Initializing metadata...');
+        logger.info('📝 Initializing metadata...');
 
         const initMetadataCmd = `spl-token initialize-metadata ${tokenAddress} \
             "${metadata.name}" \
             "${metadata.symbol}" \
             "${metadataUrl}" \
             --with-compute-unit-price {{COMPUTE_PRICE}}`;
-        
+
         await this.executeWithAdjustedComputePrice(initMetadataCmd);
-        
-        console.log('✅ Metadata initialized successfully');
+
+        logger.info('Metadata initialized successfully');
     }
 
     async mintTokens(tokenAddress) {
-        console.log('\n💰 Minting tokens...');
-        
+        logger.info('💰 Minting tokens...');
+
         const supply = await this.question('Enter token supply to mint (default: 1000000000): ');
         const finalSupply = supply || "1000000000";
         const providerAta = this.walletInfo.provider.ataAddress;
-        
+
         const mintCmd = `spl-token mint ${tokenAddress} ${finalSupply} ${providerAta} \
             --with-compute-unit-price {{COMPUTE_PRICE}}`;
-        
+
         await this.executeWithAdjustedComputePrice(mintCmd);
-        
-        console.log(`✅ ${finalSupply} tokens minted successfully to provider account: ${providerAta}`);
+
+        logger.info(`${finalSupply} tokens minted successfully to provider account: ${providerAta}`);
         this.tokenInfo.totalSupply = finalSupply;
     }
 
     async revokeAuthorities(tokenAddress) {
-        console.log('\n🔒 Revoking authorities...');
-    
+        logger.info('🔒 Revoking authorities...');
+
         const shouldRevoke = await this.question(
             'Would you like to revoke all authorities making the token immutable? (yes/no): '
         );
-    
+
         if (shouldRevoke.toLowerCase() !== 'yes') {
-            console.log('Skipping authority revocation...');
+            logger.info('Skipping authority revocation...');
             return;
         }
-    
+
         try {
-            // 1. Revoke mint authority
-            console.log('\nRevoking mint authority...');
+            logger.info('Revoking mint authority...');
             const revokeMintCmd = `spl-token authorize ${tokenAddress} mint --disable \
                 --with-compute-unit-price {{COMPUTE_PRICE}}`;
-            
             await this.executeWithAdjustedComputePrice(revokeMintCmd);
-            console.log('✅ Mint authority revoked');
-    
-            // 2. Revoke basic metadata updates
-            console.log('\nRevoking metadata authority...');
+            logger.info('Mint authority revoked');
+
+            logger.info('Revoking metadata authority...');
             const revokeMetadataCmd = `spl-token authorize ${tokenAddress} metadata --disable \
                 --with-compute-unit-price {{COMPUTE_PRICE}}`;
-            
             await this.executeWithAdjustedComputePrice(revokeMetadataCmd);
-            console.log('✅ Metadata authority revoked');
-    
-            // 3. Revoke metadata pointer updates
-            console.log('\nRevoking metadata-pointer authority...');
+            logger.info('Metadata authority revoked');
+
+            logger.info('Revoking metadata-pointer authority...');
             const revokePointerCmd = `spl-token authorize ${tokenAddress} metadata-pointer --disable \
                 --with-compute-unit-price {{COMPUTE_PRICE}}`;
-            
             await this.executeWithAdjustedComputePrice(revokePointerCmd);
-            console.log('✅ Metadata-pointer authority revoked');
-    
-            console.log('\n✅ All authorities have been successfully revoked');
-            console.log('⚠️  Warning: These actions cannot be undone. The token is now immutable.');
-    
+            logger.info('Metadata-pointer authority revoked');
+
+            logger.info('All authorities have been successfully revoked');
+            logger.warn('These actions cannot be undone. The token is now immutable.');
+
         } catch (error) {
-            console.error('❌ Error revoking authorities:', error);
+            logger.error('Error revoking authorities: ' + (error.stderr || error.message));
             throw error;
         }
     }
 
     async saveTokenInfo() {
-        console.log('\n💾 Saving token information...');
-
         const csvWriter = csv({
             path: 'token-info.csv',
             header: [
-                {id: 'type', title: 'TYPE'},
-                {id: 'address', title: 'ADDRESS'},
-                {id: 'details', title: 'DETAILS'}
+                { id: 'type', title: 'TYPE' },
+                { id: 'address', title: 'ADDRESS' },
+                { id: 'details', title: 'DETAILS' }
             ]
         });
 
@@ -472,64 +458,33 @@ class TokenCreator {
         }
 
         await csvWriter.writeRecords(records);
-        console.log('✅ Token information saved to token-info.csv');
+        logger.info('Token information saved to token-info.csv');
     }
 
     async create() {
         try {
-            // 1. Create project folder
             await this.createProjectFolder();
-            
-            // 2. Setup network
             await this.setupNetwork();
-            
-            // 3. Setup wallet (use existing or create new with --starts-with key:1)
             await this.setupWallet();
-    
-            // 4. Check wallet funding before proceeding
             await this.checkWalletFunding();
-    
-            // 5. Create token mint keypair (optional vanity address --starts-with test:1)
             await this.createTokenMintKeypair();
-    
-            // 6. Create token with the mint keypair
             const tokenAddress = await this.createToken();
-            
-            // 7. Handle manual metadata upload
             const { metadata, metadataUrl } = await this.handleManualMetadata();
-            
-            // 8. Initialize metadata
             await this.initializeMetadata(tokenAddress, metadata, metadataUrl);
-            
-            // 9. Create token accounts
             await this.createTokenAccounts(tokenAddress);
-            
-            // 10. Mint tokens to provider's ATA
             await this.mintTokens(tokenAddress);
-            
-            // 11. Optional: Revoke authorities in correct order
             await this.revokeAuthorities(tokenAddress);
-            
-            // 12. Save final token information
             await this.saveTokenInfo();
-    
-            console.log('\n🎉 Token creation completed successfully!');
-            console.log(`Token Address: ${this.tokenInfo.address}`);
-            console.log(`Provider Token Account: ${this.walletInfo.provider.ataAddress}`);
-            
-            if (this.tokenInfo.mintKeypair) {
-                console.log(`Token Mint Keypair: ${this.tokenInfo.mintKeypair}`);
-            }
-            
-            console.log('\n✅ Check wallet-info.csv and token-info.csv for all details');
-            
-            // Display verification instructions
-            console.log('\n📋 To verify your token:');
-            console.log('1. Check token balance: spl-token accounts');
-            console.log('2. View token metadata: spl-token display', this.tokenInfo.address);
-            console.log('3. View transaction history on Solana Explorer');
+
+            logger.info('🎉 Token creation completed successfully!');
+            logger.info(`Token Address: ${this.tokenInfo.address}`);
+            logger.info(`Provider Token Account: ${this.walletInfo.provider.ataAddress}`);
+            if (this.tokenInfo.mintKeypair)
+                logger.info(`Token Mint Keypair: ${this.tokenInfo.mintKeypair}`);
+            logger.info('Check wallet-info.csv and token-info.csv for all details');
+            logger.info('To verify your token:\n1. Check token balance: spl-token accounts\n2. View token metadata: spl-token display ' + this.tokenInfo.address + '\n3. View transaction history on Solana Explorer');
         } catch (error) {
-            console.error('❌ Error creating token:', error);
+            logger.error('Error creating token: ' + (error.stderr || error.message));
             throw error;
         } finally {
             this.rl.close();
@@ -537,10 +492,9 @@ class TokenCreator {
     }
 }
 
-// Run if called directly
 if (require.main === module) {
     const creator = new TokenCreator();
-    creator.create().catch(console.error);
+    creator.create().catch(err => logger.error(err.stderr || err.message));
 }
 
 module.exports = TokenCreator;
